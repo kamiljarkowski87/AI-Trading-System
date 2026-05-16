@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Trading System
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=claude-runner
+WorkingDirectory=/home/claude-runner/ai-trading-system
+EnvironmentFile=/home/claude-runner/ai-trading-system/.env
+ExecStart=/home/claude-runner/ai-trading-system/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+# Safety: kill if no heartbeat for 10 min
+WatchdogSec=600
+
+[Install]
+WantedBy=multi-user.target
