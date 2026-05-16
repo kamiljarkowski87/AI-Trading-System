@@ -7,12 +7,24 @@ from trading.logging.decision_logger import log
 _cg = CoinGeckoAPI()
 
 
+def _to_yf_symbol(symbol: str) -> str:
+    """Konwertuje symbol Binance (BTCUSDT) do formatu Yahoo Finance (BTC-USD)."""
+    if symbol.endswith("USDT"):
+        return symbol[:-4] + "-USD"
+    return symbol
+
+
 def get_ohlcv(symbol: str, period: str = "60d", interval: str = "1h") -> pd.DataFrame:
     """Fetch OHLCV from Yahoo Finance and compute technical indicators."""
-    df = yf.download(symbol, period=period, interval=interval, progress=False, auto_adjust=True)
+    yf_symbol = _to_yf_symbol(symbol)
+    df = yf.download(yf_symbol, period=period, interval=interval, progress=False, auto_adjust=True)
     if df.empty:
         log.warning("market_data.empty", symbol=symbol)
         return df
+
+    # yfinance >=0.2.x zwraca MultiIndex — spłaszczamy
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
 
     df.ta.rsi(length=14, append=True)
     df.ta.macd(append=True)

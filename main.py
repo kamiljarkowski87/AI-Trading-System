@@ -1,17 +1,39 @@
 """AI Trading System — entry point."""
 import asyncio
 import schedule
-import time
 from datetime import datetime, timezone
 
 from config.settings import settings, TradingMode
-from trading.exchanges.binance_exchange import BinanceExchange
-from trading.exchanges.coinbase_exchange import CoinbaseExchange
-from trading.exchanges.schwab_exchange import SchwabExchange
+from trading.exchanges.paper_exchange import PaperExchange
 from trading.risk.risk_controls import RiskManager
 from trading.notifications.telegram import TelegramNotifier
 from trading.graph.trading_graph import build_graph, TradingState
 from trading.logging.decision_logger import log
+
+
+def _build_exchanges():
+    """Buduje exchanges — prawdziwe gdy są klucze, paper gdy ich brak."""
+    exchanges = []
+
+    if settings.binance_api_key and settings.binance_api_secret:
+        from trading.exchanges.binance_exchange import BinanceExchange
+        exchanges.append((BinanceExchange(), CRYPTO_SYMBOLS))
+        log.info("main.exchange_loaded", name="binance", mode="real")
+    else:
+        ex = PaperExchange("binance-paper", initial_equity=10_000.0, asset_type="crypto")
+        exchanges.append((ex, CRYPTO_SYMBOLS))
+        log.info("main.exchange_loaded", name="binance-paper", mode="paper")
+
+    if settings.schwab_app_key and settings.schwab_app_secret:
+        from trading.exchanges.schwab_exchange import SchwabExchange
+        exchanges.append((SchwabExchange(), STOCK_SYMBOLS))
+        log.info("main.exchange_loaded", name="schwab", mode="real")
+    else:
+        ex = PaperExchange("schwab-paper", initial_equity=10_000.0, asset_type="stock")
+        exchanges.append((ex, STOCK_SYMBOLS))
+        log.info("main.exchange_loaded", name="schwab-paper", mode="paper")
+
+    return exchanges
 
 # ── Symbols to watch ──────────────────────────────────────────────────────────
 CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT"]   # Binance format
@@ -64,28 +86,19 @@ async def main() -> None:
 
     notifier = TelegramNotifier()
     risk = RiskManager(notify_fn=notifier.send)
-
-    binance  = BinanceExchange()
-    coinbase = CoinbaseExchange()
-    schwab   = SchwabExchange()
+    exchange_list = _build_exchanges()
 
     mode_label = f"[{settings.trading_mode.value.upper()}]"
     await notifier.send(f"{mode_label} AI Trading System started at {datetime.now(timezone.utc).isoformat()}")
     log.info("main.startup", mode=settings.trading_mode, symbols_crypto=CRYPTO_SYMBOLS, symbols_stocks=STOCK_SYMBOLS)
 
-    async def crypto_cycle():
-        await run_cycle(binance, CRYPTO_SYMBOLS, risk, notifier)
+    async def run_all():
+        for exchange, symbols in exchange_list:
+            await run_cycle(exchange, symbols, risk, notifier)
 
-    async def stock_cycle():
-        await run_cycle(schwab, STOCK_SYMBOLS, risk, notifier)
-
-    # Schedule: crypto every hour, stocks every 30 min during market hours
-    schedule.every(1).hours.do(lambda: asyncio.create_task(crypto_cycle()))
-    schedule.every(30).minutes.do(lambda: asyncio.create_task(stock_cycle()))
-
-    # Run immediately on start
-    await crypto_cycle()
-    await stock_cycle()
+    # Uruchom natychmiast, potem co godzinę
+    schedule.every(1).hours.do(lambda: asyncio.create_task(run_all()))
+    await run_all()
 
     log.info("main.scheduler_running")
     while True:

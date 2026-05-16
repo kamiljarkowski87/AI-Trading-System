@@ -88,10 +88,10 @@ def build_graph(exchange: BaseExchange, risk: RiskManager, notifier=None) -> Sta
     builder.add_node("bull",        _make_agent_node(bull_agent))
     builder.add_node("bear",        _make_agent_node(bear_agent))
     builder.add_node("master",      _make_agent_node(master_agent))
-    builder.add_node(
-        "execute",
-        lambda s: _execute_node(s, exchange, risk, notifier),
-    )
+    async def execute_node(s: TradingState) -> TradingState:
+        return await _execute_node(s, exchange, risk, notifier)
+
+    builder.add_node("execute", execute_node)
 
     # information and technical run in parallel, then debate, then master, then execute
     builder.set_entry_point("information")
