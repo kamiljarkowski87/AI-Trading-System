@@ -24,6 +24,11 @@ def _build_exchanges():
         exchanges.append((ex, CRYPTO_SYMBOLS))
         log.info("main.exchange_loaded", name="binance-paper", mode="paper")
 
+    if settings.coinbase_api_key and settings.coinbase_api_secret:
+        from trading.exchanges.coinbase_exchange import CoinbaseExchange
+        exchanges.append((CoinbaseExchange(), COINBASE_CRYPTO_SYMBOLS))
+        log.info("main.exchange_loaded", name="coinbase", mode="real-data+paper-orders")
+
     if settings.schwab_app_key and settings.schwab_app_secret:
         from trading.exchanges.schwab_exchange import SchwabExchange
         exchanges.append((SchwabExchange(), STOCK_SYMBOLS))
@@ -36,8 +41,9 @@ def _build_exchanges():
     return exchanges
 
 # ── Symbols to watch ──────────────────────────────────────────────────────────
-CRYPTO_SYMBOLS = ["BTCUSDT", "ETHUSDT"]   # Binance format
-STOCK_SYMBOLS  = ["AAPL", "NVDA"]          # Schwab format
+CRYPTO_SYMBOLS         = ["BTCUSDT", "ETHUSDT"]   # Binance format
+COINBASE_CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD"]  # Coinbase format
+STOCK_SYMBOLS          = ["AAPL", "NVDA"]          # Schwab format
 
 
 async def run_cycle(exchange, symbols: list[str], risk: RiskManager, notifier: TelegramNotifier) -> None:
