@@ -1,6 +1,9 @@
 from .base_agent import llm_call
 from trading.data.news_fetcher import fetch_news, fetch_twitter_mentions, perplexity_search
+from trading.data.sec_filings import get_recent_filings
 from trading.logging.decision_logger import log
+
+STOCK_TICKERS = {"AAPL", "NVDA", "MSFT", "GOOGL", "AMZN", "TSLA", "META"}
 
 
 async def run(symbol: str, context: dict) -> dict:
@@ -22,6 +25,15 @@ async def run(symbol: str, context: dict) -> dict:
         f"Latest important news and events about {symbol} affecting its price today"
     )
 
+    # SEC filings tylko dla akcji (nie crypto)
+    sec_text = ""
+    clean_symbol = symbol.replace("-USD", "").replace("USDT", "")
+    if clean_symbol in STOCK_TICKERS:
+        sec_text = await get_recent_filings(clean_symbol)
+        log.info("information_agent.sec_fetched", symbol=clean_symbol)
+
+    sec_section = f"\nSEC FILINGS (oficjalne raporty finansowe):\n{sec_text}\n" if sec_text else ""
+
     prompt = f"""Symbol: {symbol}
 
 NEWS (Reuters/AP/Bloomberg):
@@ -32,12 +44,13 @@ SOCIAL SENTIMENT (X/Twitter):
 
 PERPLEXITY FACT-CHECK:
 {perplexity_summary}
-
+{sec_section}
 Summarise the key information relevant for a trading decision:
 1. Main news events (bullish/bearish)
 2. Social sentiment score (-5 very bearish to +5 very bullish)
 3. Key risks to watch
-4. Overall information signal: BULLISH / BEARISH / NEUTRAL
+4. SEC filing highlights (if available)
+5. Overall information signal: BULLISH / BEARISH / NEUTRAL
 Keep it under 300 words."""
 
     summary = await llm_call(
@@ -45,5 +58,5 @@ Keep it under 300 words."""
         user=prompt,
     )
 
-    log.info("information_agent.done", symbol=symbol, articles=len(news), tweets=len(tweets))
+    log.info("information_agent.done", symbol=symbol, articles=len(news), tweets=len(tweets), sec=bool(sec_text))
     return {**context, "information_summary": summary, "news_count": len(news)}
