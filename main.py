@@ -96,8 +96,30 @@ async def main() -> None:
         for exchange, symbols in exchange_list:
             await run_cycle(exchange, symbols, risk, notifier)
 
+    async def daily_summary():
+        lines = ["Podsumowanie dnia — AI Trading System"]
+        total_start = 0.0
+        total_now = 0.0
+        for exchange, _ in exchange_list:
+            equity = await exchange.get_equity_usd()
+            stats = risk._stats.get(exchange.name)
+            start = stats.starting_equity if stats else equity
+            trades = stats.trades_executed if stats else 0
+            pnl = equity - start
+            pnl_pct = (pnl / start * 100) if start else 0
+            znak = "+" if pnl >= 0 else ""
+            lines.append(f"{exchange.name}: ${equity:,.2f} ({znak}{pnl_pct:.2f}%) | transakcji: {trades}")
+            total_start += start
+            total_now += equity
+        total_pnl = total_now - total_start
+        total_pct = (total_pnl / total_start * 100) if total_start else 0
+        znak = "+" if total_pnl >= 0 else ""
+        lines.append(f"RAZEM: ${total_now:,.2f} ({znak}{total_pct:.2f}%)")
+        await notifier.send("\n".join(lines))
+
     # Uruchom natychmiast, potem co godzinę
     schedule.every(1).hours.do(lambda: asyncio.create_task(run_all()))
+    schedule.every().day.at("20:00").do(lambda: asyncio.create_task(daily_summary()))
     await run_all()
 
     log.info("main.scheduler_running")
