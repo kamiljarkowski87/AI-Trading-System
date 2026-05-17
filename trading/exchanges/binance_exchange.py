@@ -1,7 +1,8 @@
+import uuid
 from binance import AsyncClient
 from binance.exceptions import BinanceAPIException
 from .base import BaseExchange, OrderSide, OrderResult, OrderStatus
-from config.settings import settings
+from config.settings import settings, TradingMode
 from trading.logging.decision_logger import log
 
 
@@ -10,6 +11,8 @@ class BinanceExchange(BaseExchange):
 
     def __init__(self) -> None:
         self._client: AsyncClient | None = None
+        self._paper_equity: float = 10_000.0
+        self._paper_positions: dict[str, float] = {}
 
     async def _get_client(self) -> AsyncClient:
         if not self._client:
@@ -17,10 +20,13 @@ class BinanceExchange(BaseExchange):
                 api_key=settings.binance_api_key,
                 api_secret=settings.binance_api_secret,
                 testnet=settings.binance_testnet,
+                tld=settings.binance_tld,
             )
         return self._client
 
     async def get_equity_usd(self) -> float:
+        if settings.is_paper():
+            return self._paper_equity
         client = await self._get_client()
         account = await client.get_account()
         total = 0.0
@@ -51,18 +57,42 @@ class BinanceExchange(BaseExchange):
         qty: float,
         stop_loss_pct: float,
     ) -> OrderResult:
-        client = await self._get_client()
-        is_paper = settings.binance_testnet
+        price = await self.get_price(symbol)
 
+        # W trybie paper — symulacja bez wysyłania zlecenia na giełdę
+        if settings.is_paper():
+            cost = qty * price
+            if side == OrderSide.BUY:
+                if cost > self._paper_equity:
+                    qty = self._paper_equity / price
+                    cost = self._paper_equity
+                self._paper_equity -= cost
+                self._paper_positions[symbol] = self._paper_positions.get(symbol, 0) + qty
+            else:
+                held = self._paper_positions.get(symbol, 0)
+                qty = min(qty, held)
+                self._paper_positions[symbol] = held - qty
+                self._paper_equity += qty * price
+
+            log.info("binance.paper_order", symbol=symbol, side=side.value, qty=qty, price=price)
+            return OrderResult(
+                order_id=str(uuid.uuid4())[:8],
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                avg_price=price,
+                status=OrderStatus.FILLED,
+                paper=True,
+            )
+
+        # Tryb live — prawdziwe zlecenie
+        client = await self._get_client()
         raw = await client.order_market(
             symbol=symbol,
             side=side.value.upper(),
             quantity=qty,
         )
-
-        price = float(raw.get("fills", [{}])[0].get("price", 0)) or await self.get_price(symbol)
-
-        # Place stop-loss OCO
+        price = float(raw.get("fills", [{}])[0].get("price", 0)) or price
         stop_price = price * (1 - stop_loss_pct) if side == OrderSide.BUY else price * (1 + stop_loss_pct)
         try:
             await client.create_oco_order(
@@ -77,15 +107,7 @@ class BinanceExchange(BaseExchange):
         except BinanceAPIException as e:
             log.warning("binance.stop_loss_failed", error=str(e), symbol=symbol)
 
-        log.info(
-            "binance.order",
-            symbol=symbol,
-            side=side.value,
-            qty=qty,
-            price=price,
-            stop_loss_pct=stop_loss_pct,
-            paper=is_paper,
-        )
+        log.info("binance.live_order", symbol=symbol, side=side.value, qty=qty, price=price)
         return OrderResult(
             order_id=str(raw["orderId"]),
             symbol=symbol,
@@ -93,10 +115,12 @@ class BinanceExchange(BaseExchange):
             qty=qty,
             avg_price=price,
             status=OrderStatus.FILLED,
-            paper=is_paper,
+            paper=False,
         )
 
     async def cancel_order(self, symbol: str, order_id: str) -> bool:
+        if settings.is_paper():
+            return True
         client = await self._get_client()
         try:
             await client.cancel_order(symbol=symbol, orderId=order_id)
@@ -105,6 +129,11 @@ class BinanceExchange(BaseExchange):
             return False
 
     async def get_open_positions(self) -> list[dict]:
+        if settings.is_paper():
+            return [
+                {"asset": asset, "free": qty, "locked": 0.0}
+                for asset, qty in self._paper_positions.items() if qty > 0
+            ]
         client = await self._get_client()
         account = await client.get_account()
         return [
