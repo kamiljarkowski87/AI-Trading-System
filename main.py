@@ -1,5 +1,6 @@
 """AI Trading System — entry point."""
 import asyncio
+import sqlite3
 import schedule
 from datetime import datetime, timezone
 
@@ -43,9 +44,9 @@ def _build_exchanges():
     return exchanges
 
 # ── Symbols to watch ──────────────────────────────────────────────────────────
-CRYPTO_SYMBOLS         = ["BTCUSDT", "ETHUSDT"]   # Binance format
-COINBASE_CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD"]  # Coinbase format
-STOCK_SYMBOLS          = ["AAPL", "NVDA"]          # Schwab format
+CRYPTO_SYMBOLS         = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]          # Binance format
+COINBASE_CRYPTO_SYMBOLS = ["BTC-USD", "ETH-USD", "SOL-USD"]         # Coinbase format
+STOCK_SYMBOLS          = ["AAPL", "NVDA", "MSFT", "GOOGL"]          # Schwab format
 
 
 async def run_cycle(exchange, symbols: list[str], risk: RiskManager, notifier: TelegramNotifier) -> None:
@@ -110,24 +111,50 @@ async def main() -> None:
         await evaluate_and_learn(exchange_list)
 
     async def daily_summary():
-        lines = ["Podsumowanie dnia — AI Trading System"]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        lines = [f"📊 *AI Trading — raport {today}*", ""]
+
         total_start = 0.0
         total_now = 0.0
+        total_trades = 0
         for exchange, _ in exchange_list:
             equity = await exchange.get_equity_usd()
             stats = risk._stats.get(exchange.name)
             start = stats.starting_equity if stats else equity
             trades = stats.trades_executed if stats else 0
+            total_trades += trades
             pnl = equity - start
             pnl_pct = (pnl / start * 100) if start else 0
             znak = "+" if pnl >= 0 else ""
-            lines.append(f"{exchange.name}: ${equity:,.2f} ({znak}{pnl_pct:.2f}%) | transakcji: {trades}")
+            emoji = "🟢" if pnl >= 0 else "🔴"
+            lines.append(f"{emoji} {exchange.name}: ${equity:,.2f} ({znak}{pnl_pct:.2f}%) | transakcji: {trades}")
             total_start += start
             total_now += equity
+
         total_pnl = total_now - total_start
         total_pct = (total_pnl / total_start * 100) if total_start else 0
         znak = "+" if total_pnl >= 0 else ""
-        lines.append(f"RAZEM: ${total_now:,.2f} ({znak}{total_pct:.2f}%)")
+        lines.append(f"\n💰 *RAZEM: ${total_now:,.2f} ({znak}{total_pct:.2f}%)*")
+        lines.append(f"📈 Transakcji dziś: {total_trades}")
+
+        # Najnowsze decyzje z bazy
+        try:
+            db = "logs/decisions.db"
+            con = sqlite3.connect(db)
+            rows = con.execute(
+                "SELECT symbol, action, confidence, reasoning FROM decisions "
+                "WHERE ts > datetime('now','-24 hours') AND action != 'HOLD' "
+                "ORDER BY ts DESC LIMIT 3"
+            ).fetchall()
+            con.close()
+            if rows:
+                lines.append("\n🎯 *Ostatnie transakcje:*")
+                for sym, act, conf, reason in rows:
+                    short = reason[:80] + "..." if len(reason) > 80 else reason
+                    lines.append(f"• {sym} {act} (pewność: {conf:.0%}) — {short}")
+        except Exception:
+            pass
+
         await notifier.send("\n".join(lines))
 
     # Uruchom natychmiast, potem co godzinę

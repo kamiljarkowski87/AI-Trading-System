@@ -49,7 +49,7 @@ async def _execute_node(
 
     # Paper mode: niższy próg żeby bot uczył się na realnych transakcjach
     from config.settings import settings, TradingMode
-    confidence_threshold = 0.55 if settings.trading_mode == TradingMode.PAPER else 0.65
+    confidence_threshold = 0.48 if settings.trading_mode == TradingMode.PAPER else 0.65
 
     if decision.action == "HOLD" or decision.confidence < confidence_threshold:
         log.info("graph.skip", symbol=state["symbol"], action=decision.action, confidence=decision.confidence)
