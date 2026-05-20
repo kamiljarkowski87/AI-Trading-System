@@ -15,6 +15,7 @@ class CoinbaseExchange(BaseExchange):
         )
         self._paper_equity: float = 10_000.0
         self._paper_positions: dict[str, float] = {}
+        self._position_details: dict[str, dict] = {}
 
     async def get_equity_usd(self) -> float:
         if settings.is_paper():
@@ -59,11 +60,18 @@ class CoinbaseExchange(BaseExchange):
                     cost = self._paper_equity
                 self._paper_equity -= cost
                 self._paper_positions[symbol] = self._paper_positions.get(symbol, 0) + qty
+                self._position_details[symbol] = {
+                    "entry_price": price,
+                    "stop_loss_pct": stop_loss_pct,
+                    "stop_price": price * (1 - stop_loss_pct),
+                }
             else:
                 held = self._paper_positions.get(symbol, 0)
                 qty = min(qty, held)
                 self._paper_positions[symbol] = held - qty
                 self._paper_equity += qty * price
+                if self._paper_positions[symbol] <= 0:
+                    self._position_details.pop(symbol, None)
             log.info("coinbase.paper_order", symbol=symbol, side=side.value, qty=qty, price=price)
             return OrderResult(
                 order_id=str(uuid.uuid4())[:8],
@@ -97,12 +105,23 @@ class CoinbaseExchange(BaseExchange):
         return bool(result.get("results"))
 
     async def get_open_positions(self) -> list[dict]:
-        accounts = self._client.get_accounts()
+        if settings.is_paper():
+            return [
+                {
+                    "asset": symbol,
+                    "free": qty,
+                    **self._position_details.get(symbol, {}),
+                }
+                for symbol, qty in self._paper_positions.items()
+                if qty > 0
+            ]
+        response = self._client.get_accounts()
+        accounts = response.accounts if hasattr(response, "accounts") else response.get("accounts", [])
         return [
             {
                 "asset": a["available_balance"]["currency"],
                 "free": float(a["available_balance"]["value"]),
             }
-            for a in accounts.get("accounts", [])
+            for a in accounts
             if float(a.get("available_balance", {}).get("value", 0)) > 0
         ]
