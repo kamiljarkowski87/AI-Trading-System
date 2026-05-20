@@ -13,6 +13,8 @@ class PaperExchange(BaseExchange):
         self._equity = initial_equity
         self._asset_type = asset_type
         self._positions: dict[str, float] = {}
+        # symbol -> {entry_price, stop_loss_pct, stop_price}
+        self._position_details: dict[str, dict] = {}
 
     async def get_equity_usd(self) -> float:
         total = self._equity
@@ -77,11 +79,18 @@ class PaperExchange(BaseExchange):
                 cost = self._equity
             self._equity -= cost
             self._positions[symbol] = self._positions.get(symbol, 0) + qty
+            self._position_details[symbol] = {
+                "entry_price": price,
+                "stop_loss_pct": stop_loss_pct,
+                "stop_price": price * (1 - stop_loss_pct),
+            }
         else:
             held = self._positions.get(symbol, 0)
             qty = min(qty, held)
             self._positions[symbol] = held - qty
             self._equity += qty * price
+            if self._positions[symbol] <= 0:
+                self._position_details.pop(symbol, None)
 
         order_id = str(uuid.uuid4())[:8]
         log.info(
@@ -109,7 +118,12 @@ class PaperExchange(BaseExchange):
 
     async def get_open_positions(self) -> list[dict]:
         return [
-            {"asset": asset, "free": qty, "locked": 0.0}
+            {
+                "asset": asset,
+                "free": qty,
+                "locked": 0.0,
+                **self._position_details.get(asset, {}),
+            }
             for asset, qty in self._positions.items()
             if qty > 0
         ]

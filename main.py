@@ -9,6 +9,7 @@ from trading.risk.risk_controls import RiskManager
 from trading.notifications.telegram import TelegramNotifier
 from trading.graph.trading_graph import build_graph, TradingState
 from trading.agents.learning_agent import evaluate_and_learn
+from trading.risk.position_monitor import check_stop_losses
 from trading.logging.decision_logger import log
 
 
@@ -48,6 +49,9 @@ STOCK_SYMBOLS          = ["AAPL", "NVDA"]          # Schwab format
 
 
 async def run_cycle(exchange, symbols: list[str], risk: RiskManager, notifier: TelegramNotifier) -> None:
+    # Najpierw sprawdź stop-lossy z poprzedniego cyklu
+    await check_stop_losses(exchange, notifier)
+
     equity = await exchange.get_equity_usd()
     risk.init_day(exchange.name, equity)
 
