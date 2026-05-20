@@ -15,7 +15,13 @@ class PaperExchange(BaseExchange):
         self._positions: dict[str, float] = {}
 
     async def get_equity_usd(self) -> float:
-        return self._equity
+        total = self._equity
+        for symbol, qty in self._positions.items():
+            if qty > 0:
+                price = await self.get_price(symbol)
+                if price > 0:
+                    total += qty * price
+        return total
 
     async def get_price(self, symbol: str) -> float:
         """Pobiera prawdziwą cenę z CoinGecko (crypto) lub Yahoo Finance (akcje)."""

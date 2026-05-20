@@ -40,6 +40,9 @@ class RiskManager:
         return exchange in self._halted
 
     async def check_drawdown(self, exchange: str, equity: float) -> bool:
+        if self.is_halted(exchange):
+            return False
+
         self.update_equity(exchange, equity)
         stats = self._stats.get(exchange)
         if not stats:
