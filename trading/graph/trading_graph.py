@@ -4,7 +4,7 @@ from trading.agents import information_agent, technical_agent, bull_agent, bear_
 from trading.agents.master_agent import TradingDecision
 from trading.exchanges.base import BaseExchange, OrderSide
 from trading.risk.risk_controls import RiskManager
-from trading.logging.decision_logger import log
+from trading.logging.decision_logger import log, save_decision
 
 
 class TradingState(TypedDict):
@@ -35,6 +35,18 @@ async def _execute_node(
 ) -> TradingState:
     decision: TradingDecision = state["decision"]
 
+    price = await exchange.get_price(state["symbol"])
+    save_decision(
+        symbol=state["symbol"],
+        exchange=exchange.name,
+        action=decision.action,
+        confidence=decision.confidence,
+        size_pct=decision.size_pct,
+        stop_loss_pct=decision.stop_loss_pct,
+        reasoning=decision.reasoning,
+        price=price,
+    )
+
     if decision.action == "HOLD" or decision.confidence < 0.65:
         log.info("graph.skip", symbol=state["symbol"], action=decision.action, confidence=decision.confidence)
         return {**state, "executed": False}
@@ -57,7 +69,6 @@ async def _execute_node(
             await notifier.send(f"Order REJECTED for {state['symbol']}: {reason}")
         return {**state, "executed": False, "error": reason}
 
-    price = await exchange.get_price(state["symbol"])
     qty = size_usd / price
 
     result = await exchange.place_market_order(
