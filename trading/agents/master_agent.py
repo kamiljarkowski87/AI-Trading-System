@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from .base_agent import llm_call
+from .learning_agent import load_lessons
 from trading.logging.decision_logger import log, log_decision
 import json
 import re
@@ -16,6 +17,7 @@ class TradingDecision:
 
 
 async def run(symbol: str, context: dict) -> dict:
+    lessons = load_lessons()
     prompt = f"""Symbol: {symbol}
 
 === INFORMATION AGENT ===
@@ -29,6 +31,7 @@ async def run(symbol: str, context: dict) -> dict:
 
 === BEAR CASE ===
 {context.get('bear_argument', 'N/A')}
+{f"{chr(10)}{lessons}" if lessons else ""}
 
 You are the MasterAgent making the final trading decision. Weigh all evidence carefully.
 

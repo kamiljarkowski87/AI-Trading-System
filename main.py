@@ -8,6 +8,7 @@ from trading.exchanges.paper_exchange import PaperExchange
 from trading.risk.risk_controls import RiskManager
 from trading.notifications.telegram import TelegramNotifier
 from trading.graph.trading_graph import build_graph, TradingState
+from trading.agents.learning_agent import evaluate_and_learn
 from trading.logging.decision_logger import log
 
 
@@ -101,6 +102,9 @@ async def main() -> None:
     async def run_all():
         for exchange, symbols in exchange_list:
             await run_cycle(exchange, symbols, risk, notifier)
+        # Nauka po każdym pełnym cyklu — sprawdza przeszłe decyzje vs ceny
+        first_exchange = exchange_list[0][0]
+        await evaluate_and_learn(first_exchange.get_price)
 
     async def daily_summary():
         lines = ["Podsumowanie dnia — AI Trading System"]
