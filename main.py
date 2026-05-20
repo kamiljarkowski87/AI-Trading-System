@@ -107,8 +107,7 @@ async def main() -> None:
         for exchange, symbols in exchange_list:
             await run_cycle(exchange, symbols, risk, notifier)
         # Nauka po każdym pełnym cyklu — sprawdza przeszłe decyzje vs ceny
-        first_exchange = exchange_list[0][0]
-        await evaluate_and_learn(first_exchange.get_price)
+        await evaluate_and_learn(exchange_list)
 
     async def daily_summary():
         lines = ["Podsumowanie dnia — AI Trading System"]

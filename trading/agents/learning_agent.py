@@ -10,8 +10,14 @@ _LESSONS_PATH = Path("./logs/lessons.json")
 _DB_PATH = Path("./logs/decisions.db")
 
 
-async def evaluate_and_learn(get_price_fn) -> None:
-    """Po każdym cyklu sprawdza decyzje HOLD z ostatnich 2-24h vs aktualne ceny."""
+async def evaluate_and_learn(exchange_list: list) -> None:
+    """Po każdym cyklu sprawdza decyzje z ostatnich 2-24h vs aktualne ceny."""
+    # Mapa: symbol -> exchange (żeby akcje używały schwab, crypto binance)
+    price_map: dict = {}
+    for exchange, symbols in exchange_list:
+        for sym in symbols:
+            price_map[sym] = exchange
+
     now = datetime.now(timezone.utc)
     cutoff_recent = (now - timedelta(hours=2)).isoformat()
     cutoff_old = (now - timedelta(hours=24)).isoformat()
@@ -36,7 +42,10 @@ async def evaluate_and_learn(get_price_fn) -> None:
     new_insights = []
     for symbol, action, confidence, reasoning, old_price, ts in rows:
         try:
-            current_price = await get_price_fn(symbol)
+            exchange = price_map.get(symbol)
+            if not exchange:
+                continue
+            current_price = await exchange.get_price(symbol)
             if current_price <= 0:
                 continue
             pct = (current_price - old_price) / old_price * 100
