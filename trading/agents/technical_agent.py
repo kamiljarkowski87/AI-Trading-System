@@ -39,6 +39,7 @@ Keep it under 250 words."""
     analysis = await llm_call(
         system="You are a professional technical analyst. Focus on price action and indicators. Be precise.",
         user=prompt,
+        fast=True,
     )
 
     log.info("technical_agent.done", symbol=symbol, rows=len(df))

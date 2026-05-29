@@ -157,8 +157,8 @@ async def main() -> None:
 
         await notifier.send("\n".join(lines))
 
-    # Uruchom natychmiast, potem co godzinę
-    schedule.every(1).hours.do(lambda: asyncio.create_task(run_all()))
+    # Uruchom natychmiast, potem co 2 godziny
+    schedule.every(2).hours.do(lambda: asyncio.create_task(run_all()))
     schedule.every().day.at("20:00").do(lambda: asyncio.create_task(daily_summary()))
     await run_all()
 

@@ -22,6 +22,7 @@ Be persuasive but stick to facts. Under 200 words."""
         system="You are a bullish trader building the case for going long. Be confident and fact-based.",
         user=prompt,
         temperature=0.5,
+        fast=True,
     )
 
     log.info("bull_agent.done", symbol=symbol)

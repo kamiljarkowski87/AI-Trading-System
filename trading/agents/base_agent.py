@@ -2,13 +2,15 @@ from anthropic import AsyncAnthropic
 from config.settings import settings
 
 _client = AsyncAnthropic(api_key=settings.anthropic_api_key)
-MODEL = "claude-sonnet-4-6"
-MAX_TOKENS = 2048
+MODEL_SONNET = "claude-sonnet-4-6"
+MODEL_HAIKU = "claude-haiku-4-5-20251001"
+MAX_TOKENS = 512
 
 
-async def llm_call(system: str, user: str, temperature: float = 0.3) -> str:
+async def llm_call(system: str, user: str, temperature: float = 0.3, fast: bool = False) -> str:
+    model = MODEL_HAIKU if fast else MODEL_SONNET
     response = await _client.messages.create(
-        model=MODEL,
+        model=model,
         max_tokens=MAX_TOKENS,
         temperature=temperature,
         system=system,

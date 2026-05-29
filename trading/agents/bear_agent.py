@@ -25,6 +25,7 @@ Counter the bull's points directly. Under 200 words."""
         system="You are a bearish trader and risk-focused critic. Challenge every bullish assumption.",
         user=prompt,
         temperature=0.5,
+        fast=True,
     )
 
     log.info("bear_agent.done", symbol=symbol)
