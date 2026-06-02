@@ -56,6 +56,7 @@ Keep it under 300 words."""
     summary = await llm_call(
         system="You are a financial information analyst. Be objective, concise and data-driven.",
         user=prompt,
+        fast=True,
     )
 
     log.info("information_agent.done", symbol=symbol, articles=len(news), tweets=len(tweets), sec=bool(sec_text))
