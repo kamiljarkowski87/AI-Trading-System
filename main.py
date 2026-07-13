@@ -12,6 +12,7 @@ from trading.graph.trading_graph import build_graph, TradingState
 from trading.agents.learning_agent import evaluate_and_learn
 from trading.risk.position_monitor import check_stop_losses
 from trading.logging.decision_logger import log
+from trading.exchanges import portfolio_store
 
 
 def _build_exchanges():
@@ -54,6 +55,8 @@ async def run_cycle(exchange, symbols: list[str], risk: RiskManager, notifier: T
     await check_stop_losses(exchange, notifier)
 
     equity = await exchange.get_equity_usd()
+    open_positions = await exchange.get_open_positions()
+    portfolio_store.save_snapshot(exchange.name, equity, len(open_positions))
     risk.init_day(exchange.name, equity)
 
     drawdown_ok = await risk.check_drawdown(exchange.name, equity)

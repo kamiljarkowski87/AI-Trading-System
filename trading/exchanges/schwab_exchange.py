@@ -2,6 +2,7 @@ import schwab
 from .base import BaseExchange, OrderSide, OrderResult, OrderStatus
 from config.settings import settings
 from trading.logging.decision_logger import log
+from trading.exchanges import portfolio_store
 
 
 class SchwabExchange(BaseExchange):
@@ -16,8 +17,16 @@ class SchwabExchange(BaseExchange):
             asyncio=True,
         )
         self._paper = settings.schwab_paper
+        (
+            self._paper_equity,
+            self._paper_positions,
+            self._position_details,
+            self._starting_equity,
+        ) = portfolio_store.load_state(self.name, 10_000.0)
 
     async def get_equity_usd(self) -> float:
+        if self._paper:
+            return self._paper_equity
         resp = await self._client.get_accounts(fields=[self._client.Account.Fields.POSITIONS])
         data = resp.json()
         total = 0.0
@@ -40,16 +49,37 @@ class SchwabExchange(BaseExchange):
         price = await self.get_price(symbol)
         stop_price = round(price * (1 - stop_loss_pct) if side == OrderSide.BUY else price * (1 + stop_loss_pct), 2)
 
-        # Build bracket order (entry + stop-loss)
-        order = (
-            schwab.orders.equities.equity_buy_market(symbol, int(qty))
-            if side == OrderSide.BUY
-            else schwab.orders.equities.equity_sell_market(symbol, int(qty))
-        )
-
         if self._paper:
+            cost = qty * price
+            if side == OrderSide.BUY:
+                if cost > self._paper_equity:
+                    qty = self._paper_equity / price
+                    cost = self._paper_equity
+                self._paper_equity -= cost
+                self._paper_positions[symbol] = self._paper_positions.get(symbol, 0) + qty
+                self._position_details[symbol] = {
+                    "entry_price": price,
+                    "stop_loss_pct": stop_loss_pct,
+                    "stop_price": stop_price,
+                }
+            else:
+                held = self._paper_positions.get(symbol, 0)
+                qty = min(qty, held)
+                self._paper_positions[symbol] = held - qty
+                self._paper_equity += qty * price
+                if self._paper_positions[symbol] <= 0:
+                    self._position_details.pop(symbol, None)
+
+            portfolio_store.save_state(
+                self.name, self._paper_equity, self._paper_positions, self._position_details, self._starting_equity
+            )
             log.info("schwab.paper_order", symbol=symbol, side=side.value, qty=qty, price=price, stop=stop_price)
         else:
+            order = (
+                schwab.orders.equities.equity_buy_market(symbol, int(qty))
+                if side == OrderSide.BUY
+                else schwab.orders.equities.equity_sell_market(symbol, int(qty))
+            )
             acct = (await self._client.get_accounts()).json()[0]["securitiesAccount"]["accountNumber"]
             await self._client.place_order(acct, order)
 
@@ -62,7 +92,7 @@ class SchwabExchange(BaseExchange):
             side=side,
             qty=qty,
             avg_price=price,
-            status=OrderStatus.FILLED if not self._paper else OrderStatus.FILLED,
+            status=OrderStatus.FILLED,
             paper=self._paper,
         )
 
@@ -71,13 +101,23 @@ class SchwabExchange(BaseExchange):
         return False
 
     async def get_open_positions(self) -> list[dict]:
+        if self._paper:
+            return [
+                {
+                    "asset": symbol,
+                    "free": qty,
+                    **self._position_details.get(symbol, {}),
+                }
+                for symbol, qty in self._paper_positions.items()
+                if qty > 0
+            ]
         resp = await self._client.get_accounts(fields=[self._client.Account.Fields.POSITIONS])
         positions = []
         for acct in resp.json():
             for pos in acct.get("securitiesAccount", {}).get("positions", []):
                 positions.append({
-                    "symbol": pos["instrument"]["symbol"],
-                    "qty": pos["longQuantity"] - pos["shortQuantity"],
+                    "asset": pos["instrument"]["symbol"],
+                    "free": pos["longQuantity"] - pos["shortQuantity"],
                     "market_value": pos["marketValue"],
                 })
         return positions

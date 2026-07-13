@@ -4,6 +4,7 @@ from binance.exceptions import BinanceAPIException
 from .base import BaseExchange, OrderSide, OrderResult, OrderStatus
 from config.settings import settings, TradingMode
 from trading.logging.decision_logger import log
+from trading.exchanges import portfolio_store
 
 
 class BinanceExchange(BaseExchange):
@@ -11,8 +12,12 @@ class BinanceExchange(BaseExchange):
 
     def __init__(self) -> None:
         self._client: AsyncClient | None = None
-        self._paper_equity: float = 10_000.0
-        self._paper_positions: dict[str, float] = {}
+        (
+            self._paper_equity,
+            self._paper_positions,
+            self._position_details,
+            self._starting_equity,
+        ) = portfolio_store.load_state(self.name, 10_000.0)
 
     async def _get_client(self) -> AsyncClient:
         if not self._client:
@@ -68,12 +73,22 @@ class BinanceExchange(BaseExchange):
                     cost = self._paper_equity
                 self._paper_equity -= cost
                 self._paper_positions[symbol] = self._paper_positions.get(symbol, 0) + qty
+                self._position_details[symbol] = {
+                    "entry_price": price,
+                    "stop_loss_pct": stop_loss_pct,
+                    "stop_price": price * (1 - stop_loss_pct),
+                }
             else:
                 held = self._paper_positions.get(symbol, 0)
                 qty = min(qty, held)
                 self._paper_positions[symbol] = held - qty
                 self._paper_equity += qty * price
+                if self._paper_positions[symbol] <= 0:
+                    self._position_details.pop(symbol, None)
 
+            portfolio_store.save_state(
+                self.name, self._paper_equity, self._paper_positions, self._position_details, self._starting_equity
+            )
             log.info("binance.paper_order", symbol=symbol, side=side.value, qty=qty, price=price)
             return OrderResult(
                 order_id=str(uuid.uuid4())[:8],
@@ -131,7 +146,7 @@ class BinanceExchange(BaseExchange):
     async def get_open_positions(self) -> list[dict]:
         if settings.is_paper():
             return [
-                {"asset": asset, "free": qty, "locked": 0.0}
+                {"asset": asset, "free": qty, "locked": 0.0, **self._position_details.get(asset, {})}
                 for asset, qty in self._paper_positions.items() if qty > 0
             ]
         client = await self._get_client()

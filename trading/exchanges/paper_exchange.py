@@ -3,6 +3,7 @@ import uuid
 import httpx
 from .base import BaseExchange, OrderSide, OrderResult, OrderStatus
 from trading.logging.decision_logger import log
+from trading.exchanges import portfolio_store
 
 
 class PaperExchange(BaseExchange):
@@ -10,11 +11,10 @@ class PaperExchange(BaseExchange):
 
     def __init__(self, name: str, initial_equity: float = 10_000.0, asset_type: str = "crypto"):
         self.name = name
-        self._equity = initial_equity
         self._asset_type = asset_type
-        self._positions: dict[str, float] = {}
-        # symbol -> {entry_price, stop_loss_pct, stop_price}
-        self._position_details: dict[str, dict] = {}
+        self._equity, self._positions, self._position_details, self._starting_equity = (
+            portfolio_store.load_state(name, initial_equity)
+        )
 
     async def get_equity_usd(self) -> float:
         total = self._equity
@@ -91,6 +91,10 @@ class PaperExchange(BaseExchange):
             self._equity += qty * price
             if self._positions[symbol] <= 0:
                 self._position_details.pop(symbol, None)
+
+        portfolio_store.save_state(
+            self.name, self._equity, self._positions, self._position_details, self._starting_equity
+        )
 
         order_id = str(uuid.uuid4())[:8]
         log.info(

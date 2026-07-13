@@ -3,6 +3,7 @@ from coinbase.rest import RESTClient
 from .base import BaseExchange, OrderSide, OrderResult, OrderStatus
 from config.settings import settings, TradingMode
 from trading.logging.decision_logger import log
+from trading.exchanges import portfolio_store
 
 
 class CoinbaseExchange(BaseExchange):
@@ -13,9 +14,12 @@ class CoinbaseExchange(BaseExchange):
             api_key=settings.coinbase_api_key,
             api_secret=settings.coinbase_api_secret.replace("\\n", "\n"),
         )
-        self._paper_equity: float = 10_000.0
-        self._paper_positions: dict[str, float] = {}
-        self._position_details: dict[str, dict] = {}
+        (
+            self._paper_equity,
+            self._paper_positions,
+            self._position_details,
+            self._starting_equity,
+        ) = portfolio_store.load_state(self.name, 10_000.0)
 
     async def get_equity_usd(self) -> float:
         if settings.is_paper():
@@ -72,6 +76,9 @@ class CoinbaseExchange(BaseExchange):
                 self._paper_equity += qty * price
                 if self._paper_positions[symbol] <= 0:
                     self._position_details.pop(symbol, None)
+            portfolio_store.save_state(
+                self.name, self._paper_equity, self._paper_positions, self._position_details, self._starting_equity
+            )
             log.info("coinbase.paper_order", symbol=symbol, side=side.value, qty=qty, price=price)
             return OrderResult(
                 order_id=str(uuid.uuid4())[:8],
