@@ -20,7 +20,6 @@ class TelegramNotifier:
             await self._bot.send_message(
                 chat_id=settings.telegram_chat_id,
                 text=f"[AI Trading]\n{message}",
-                parse_mode="HTML",
             )
         except TelegramError as e:
             log.error("telegram.error", error=str(e))
